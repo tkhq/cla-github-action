@@ -41,7 +41,8 @@ export function setDefaultInputs(
     'create-file-commit-message': 'Creating file for storing CLA Signatures',
     'signed-commit-message': '$contributorName has signed the CLA',
     'use-dco-flag': 'false',
-    'lock-pullrequest-aftermerge': 'true'
+    'lock-pullrequest-aftermerge': 'true',
+    'suppress-all-exempt-comment': 'true'
   }
   for (const [k, v] of Object.entries({ ...defaults, ...overrides })) {
     if (v !== undefined) setInput(k, v)

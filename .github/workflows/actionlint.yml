@@ -7,6 +7,7 @@ on:
     branches: [master]
     paths:
       - '.github/workflows/**'
+      - 'templates/cla.yml'
 
 permissions:
   contents: read
@@ -16,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - name: Install and run actionlint
@@ -29,4 +30,16 @@ jobs:
           set -euo pipefail
           curl -sSfL "https://raw.githubusercontent.com/rhysd/actionlint/${ACTIONLINT_SHA}/scripts/download-actionlint.bash" -o /tmp/download-actionlint.bash
           bash /tmp/download-actionlint.bash "${ACTIONLINT_VERSION}"
-          ./actionlint -color
+          ./actionlint -color .github/workflows/*.yml templates/cla.yml
+      - name: Install and run zizmor
+        env:
+          ZIZMOR_VERSION: 1.30.1
+          ZIZMOR_SHA256: e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a
+        run: |
+          set -euo pipefail
+          archive="/tmp/zizmor-${ZIZMOR_VERSION}.tar.gz"
+          curl -sSfL "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz" -o "${archive}"
+          echo "${ZIZMOR_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir /tmp/zizmor
+          tar -xzf "${archive}" -C /tmp/zizmor
+          /tmp/zizmor/zizmor .github/workflows templates/cla.yml

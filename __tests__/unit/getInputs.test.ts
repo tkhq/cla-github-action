@@ -19,10 +19,11 @@ describe('getInputs wrappers', () => {
     ['getCustomAllSignedPrComment', 'custom-allsigned-prcomment'],
     ['getCustomPrSignComment', 'custom-pr-sign-comment']
   ]
-  const booleanInputs: Array<[keyof typeof inputs, string]> = [
-    ['getUseDcoFlag', 'use-dco-flag'],
-    ['lockPullRequestAfterMerge', 'lock-pullrequest-aftermerge'],
-    ['suggestRecheck', 'suggest-recheck']
+  const booleanInputs: Array<[keyof typeof inputs, string, boolean]> = [
+    ['getUseDcoFlag', 'use-dco-flag', false],
+    ['lockPullRequestAfterMerge', 'lock-pullrequest-aftermerge', false],
+    ['suggestRecheck', 'suggest-recheck', false],
+    ['suppressAllExemptComment', 'suppress-all-exempt-comment', true]
   ]
 
   it.each(stringInputs)(
@@ -33,15 +34,62 @@ describe('getInputs wrappers', () => {
     }
   )
 
-  it.each(booleanInputs)('%s parses "%s" as a boolean', (fn, inputName) => {
-    setInput(inputName, 'true')
-    expect((inputs[fn] as () => boolean)()).toBe(true)
-    setInput(inputName, 'false')
-    expect((inputs[fn] as () => boolean)()).toBe(false)
-    setInput(inputName, 'TRUE')
-    expect((inputs[fn] as () => boolean)()).toBe(true)
-    setInput(inputName, '')
-    expect((inputs[fn] as () => boolean)()).toBe(false)
+  it.each(booleanInputs)(
+    '%s parses "%s" as a boolean',
+    (fn, inputName, fallback) => {
+      setInput(inputName, 'true')
+      expect((inputs[fn] as () => boolean)()).toBe(true)
+      setInput(inputName, 'false')
+      expect((inputs[fn] as () => boolean)()).toBe(false)
+      setInput(inputName, 'TRUE')
+      expect((inputs[fn] as () => boolean)()).toBe(true)
+      setInput(inputName, '')
+      expect((inputs[fn] as () => boolean)()).toBe(fallback)
+    }
+  )
+
+  it.each(booleanInputs)(
+    '%s rejects a malformed "%s" boolean',
+    (fn, inputName) => {
+      setInput(inputName, 'yes')
+      expect(() => (inputs[fn] as () => boolean)()).toThrow(
+        new RegExp(`${inputName}.*true.*false`, 'i')
+      )
+    }
+  )
+
+  it('reads allowlist IDs directly', () => {
+    setInput('allowlist-ids', '1,2,3')
+    expect(inputs.getAllowListIds()).toBe('1,2,3')
+  })
+
+  it('reads allowlist IDs from a named environment variable', () => {
+    setInput('allowlist-ids-env', 'CLA_ALLOWLIST_IDS')
+    process.env.CLA_ALLOWLIST_IDS = '4,5,6'
+    try {
+      expect(inputs.getAllowListIds()).toBe('4,5,6')
+    } finally {
+      delete process.env.CLA_ALLOWLIST_IDS
+    }
+  })
+
+  it('rejects conflicting direct and environment allowlists', () => {
+    setInput('allowlist-ids', '1')
+    setInput('allowlist-ids-env', 'CLA_ALLOWLIST_IDS')
+    expect(() => inputs.getAllowListIds()).toThrow(/cannot both be set/i)
+  })
+
+  it.each(['lowercase', '1_IDS', 'CLA-IDS'])(
+    'rejects an invalid allowlist environment variable name (%s)',
+    envName => {
+      setInput('allowlist-ids-env', envName)
+      expect(() => inputs.getAllowListIds()).toThrow(/uppercase environment/i)
+    }
+  )
+
+  it('rejects an unset allowlist environment variable', () => {
+    setInput('allowlist-ids-env', 'CLA_ALLOWLIST_IDS')
+    expect(() => inputs.getAllowListIds()).toThrow(/unset variable/i)
   })
 
   it('returns an empty string when the input is unset', () => {

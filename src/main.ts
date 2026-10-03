@@ -6,6 +6,7 @@ import * as core from '@actions/core'
 import * as input from './shared/getInputs'
 import { validateMergedPullRequestForLock } from './livePullRequest'
 import { requireHttpsDocumentUrl } from './shared/documentUrl'
+import { errorMessage } from './shared/errors'
 import { runSignerPreflight, setSignerDecision } from './signerPreflight'
 
 export async function run() {
@@ -22,6 +23,7 @@ export async function run() {
     core.setOutput('comment_author_id', '')
 
     requireHttpsDocumentUrl()
+    input.validateRemoteLedgerInputs()
 
     const mode = input.getMode()
     if (mode === 'signer-preflight') {
@@ -61,7 +63,7 @@ export async function run() {
 
     await setupClaCheck()
   } catch (error) {
-    if (error instanceof Error) core.setFailed(error.message)
+    core.setFailed(errorMessage(error))
   }
 }
 

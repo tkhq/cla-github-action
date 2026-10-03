@@ -419,6 +419,7 @@ describe('CLA action end-to-end scenarios', () => {
       .repo('acme', 'widgets')
       .getFile('signatures/cla.json') as any
     expect(sigFile.signedContributors).toEqual([])
+    expect(fake.repo('acme', 'widgets').listComments(9)).toEqual([])
   })
 
   it('exempts an allowlisted commit author who is not the opener', async () => {

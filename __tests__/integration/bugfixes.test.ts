@@ -362,9 +362,7 @@ describe('bug fixes', () => {
       expect(repository.getFile('signatures/cla.json')).toEqual({
         signedContributors: []
       })
-      expect(repository.listComments(10)[0]?.body).toMatch(
-        /all contributors have signed the cla/i
-      )
+      expect(repository.listComments(10)).toEqual([])
       expect(watch.failures).toEqual([])
       expect(watch.outputs).toContainEqual(['cla_passed', true])
       watch.restore()

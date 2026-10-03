@@ -17,6 +17,20 @@ export const getRemoteOrgName = (): string => {
   return core.getInput('remote-organization-name', { required: false })
 }
 
+export function validateRemoteLedgerInputs(): {
+  remoteOrg: string
+  remoteRepo: string
+} {
+  const remoteOrg = getRemoteOrgName()
+  const remoteRepo = getRemoteRepoName()
+  if (Boolean(remoteRepo) !== Boolean(remoteOrg)) {
+    throw new Error(
+      'remote-organization-name and remote-repository-name must be provided together'
+    )
+  }
+  return { remoteOrg, remoteRepo }
+}
+
 export const getPathToSignatures = (): string =>
   core.getInput('path-to-signatures', { required: false })
 
@@ -86,8 +100,24 @@ export const getRequiredBaseRef = (): string =>
 export const getAllowListItem = (): string =>
   core.getInput('allowlist', { required: false })
 
-export const getAllowListIds = (): string =>
-  core.getInput('allowlist-ids', { required: false })
+export const getAllowListIds = (): string => {
+  const direct = core.getInput('allowlist-ids', { required: false })
+  const envName = core.getInput('allowlist-ids-env', { required: false }).trim()
+  if (direct && envName) {
+    throw new Error('allowlist-ids and allowlist-ids-env cannot both be set')
+  }
+  if (!envName) return direct
+  if (!/^[A-Z_][A-Z0-9_]*$/.test(envName)) {
+    throw new Error(
+      'allowlist-ids-env must name an uppercase environment variable'
+    )
+  }
+  const value = process.env[envName]
+  if (value === undefined) {
+    throw new Error(`allowlist-ids-env references unset variable ${envName}`)
+  }
+  return value
+}
 
 export const getSignedCommitMessage = (): string =>
   core.getInput('signed-commit-message', { required: false })
@@ -111,6 +141,9 @@ export const lockPullRequestAfterMerge = (): boolean =>
 
 export const suggestRecheck = (): boolean => getBooleanInput('suggest-recheck')
 
+export const suppressAllExemptComment = (): boolean =>
+  getBooleanInput('suppress-all-exempt-comment', true)
+
 /**
  * Whether the PR opener must be recorded as an author or co-author of at
  * least one commit in the PR. Committer metadata does not qualify because it
@@ -127,14 +160,14 @@ export const requireOpenerAsAuthor = (): boolean =>
 /**
  * Parses the action input as a boolean, tolerating unset / empty. Actions
  * accept only strings; 'true' / 'false' (case-insensitive) are the supported
- * values. Anything else falls back to `fallback` (default false), so an
- * unset input preserves the semantics the caller wants.
+ * values. An unset input uses `fallback`; any other value is rejected.
  */
 function getBooleanInput(name: string, fallback = false): boolean {
   const raw = core.getInput(name, { required: false }).toLowerCase().trim()
+  if (raw === '') return fallback
   if (raw === 'true') return true
   if (raw === 'false') return false
-  return fallback
+  throw new Error(`${name} must be either 'true' or 'false'`)
 }
 
 function parsePositiveSafeInteger(value: string): number | undefined {

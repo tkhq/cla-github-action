@@ -19,11 +19,12 @@ interface SignaturesTarget {
 }
 
 function resolveSignaturesTarget(): SignaturesTarget {
-  const remote = Boolean(input.getRemoteRepoName() || input.getRemoteOrgName())
+  const { remoteRepo, remoteOrg } = input.validateRemoteLedgerInputs()
+  const remote = Boolean(remoteRepo)
   return {
     octokit: remote ? getPATOctokit() : getDefaultOctokitClient(),
-    owner: input.getRemoteOrgName() || context.repo.owner,
-    repo: input.getRemoteRepoName() || context.repo.repo,
+    owner: remoteOrg || context.repo.owner,
+    repo: remoteRepo || context.repo.repo,
     path: input.getPathToSignatures(),
     branch: input.getBranch()
   }

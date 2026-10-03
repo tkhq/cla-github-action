@@ -88,6 +88,14 @@ describe('Pull request event', () => {
     expect(core.setFailed).toHaveBeenCalledWith('lock request failed')
   })
 
+  test('a non-Error rejection is reported through the action failure channel', async () => {
+    mockedLockPullRequest.mockRejectedValueOnce('lock rejected')
+
+    await run()
+
+    expect(core.setFailed).toHaveBeenCalledWith('lock rejected')
+  })
+
   test('a failed merged Pull Request validation prevents locking', async () => {
     mockedValidateMergedPullRequestForLock.mockRejectedValueOnce(
       new Error('live identity mismatch')
@@ -188,6 +196,30 @@ describe('Pull request event', () => {
     expect(mockedCoreWarning).not.toHaveBeenCalled()
     expect(mockedGetClas).toHaveBeenCalled()
   })
+
+  test.each([
+    ['remote-organization-name', 'tkhq'],
+    ['remote-repository-name', 'cla-signatures']
+  ])(
+    'rejects a partial remote ledger target before CLA work (%s)',
+    async (configuredInput, configuredValue) => {
+      mockedCoreGetInput.mockImplementation((name: string) => {
+        if (name === 'lock-pullrequest-aftermerge') return 'true'
+        if (name === 'required-base-ref') return 'main'
+        if (name === 'path-to-document') return 'https://example.com/cla'
+        if (name === configuredInput) return configuredValue
+        return ''
+      })
+      github.context.payload.action = 'opened'
+
+      await run()
+
+      expect(core.setFailed).toHaveBeenCalledWith(
+        'remote-organization-name and remote-repository-name must be provided together'
+      )
+      expect(mockedGetClas).not.toHaveBeenCalled()
+    }
+  )
 
   test.each(['', 'CLA.md', 'http://example.com/cla', '//example.com/cla'])(
     'rejects an unsafe path-to-document before any GitHub write: %p',
