@@ -82,6 +82,8 @@ Treat each terms change as a new CLA version. Update `CLA_VERSION` and `CLA_DOCU
 
 Review each upstream change instead of merging it blindly. Apply the selected changes, install with `npm ci`, and build with Node 24 by running `npm run build`. Confirm that a second clean build produces the same `dist/index.js`. Run the tests, lint, production audit, actionlint, zizmor, and the bundle checks from `.github/workflows/nodejs.yml` before updating any consumer pin.
 
+Dependabot pull requests that change action pins inside `.github/workflows/cla.yml`, including `actions/create-github-app-token`, change the audited privileged workflow. Apply the same security-review bar as a manual workflow change.
+
 ---
 
 > [!NOTE]

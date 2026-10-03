@@ -41,6 +41,8 @@ jobs:
       head-sha: ${{ steps.pull.outputs.head_sha }}
       base-sha: ${{ steps.pull.outputs.base_sha }}
       preflight-ok: ${{ steps.preflight.outcome == 'success' }}
+      preflight-ran: ${{ steps.preflight.outcome == 'success' || steps.preflight.outcome == 'failure' }}
+      preflight-decision: ${{ steps.preflight.outputs.signer_decision }}
       comment-id: ${{ steps.preflight.outputs.comment_id }}
       comment-created-at: ${{ steps.preflight.outputs.comment_created_at }}
       comment-author-id: ${{ steps.preflight.outputs.comment_author_id }}
@@ -84,7 +86,7 @@ jobs:
             if (body === process.env.SIGNING_PHRASE) {
               operation = 'check'
               signingComment = 'true'
-            } else if (body === 'recheck') {
+            } else if (body.toLowerCase() === 'recheck') {
               operation = 'check'
             }
           }
@@ -127,6 +129,7 @@ jobs:
       - name: Create organization-members token for preflight
         id: members-token
         if: steps.classify.outputs.signing_comment == 'true'
+        continue-on-error: true
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
         with:
           app-id: ${{ secrets.CLA_APP_ID }}
@@ -136,7 +139,11 @@ jobs:
           permission-members: read
 
       - name: Resolve and mask preflight allowlist
-        if: steps.classify.outputs.signing_comment == 'true'
+        id: preflight-members
+        if: >-
+          steps.classify.outputs.signing_comment == 'true' &&
+          steps.members-token.outcome == 'success'
+        continue-on-error: true
         env:
           MEMBERS_TOKEN: ${{ steps.members-token.outputs.token }}
           API_URL: ${{ github.api_url }}
@@ -183,7 +190,10 @@ jobs:
 
       - name: Authenticate signing comment
         id: preflight
-        if: steps.classify.outputs.signing_comment == 'true'
+        if: >-
+          steps.classify.outputs.signing_comment == 'true' &&
+          steps.members-token.outcome == 'success' &&
+          steps.preflight-members.outcome == 'success'
         continue-on-error: true
         uses: tkhq/cla-github-action@47a98247890d866a27f75cdefcade646bc5d06e4 # pin: 47a9824
         with:
@@ -211,10 +221,19 @@ jobs:
       pull-requests: write
       statuses: write
     steps:
-      - name: Reject unauthorized signing comment
+      - name: Reject unapproved signing comment
         if: needs.admission.outputs.signing-comment == 'true' && needs.admission.outputs.preflight-ok != 'true'
+        env:
+          PREFLIGHT_RAN: ${{ needs.admission.outputs.preflight-ran }}
+          PREFLIGHT_DECISION: ${{ needs.admission.outputs.preflight-decision }}
         run: |
-          echo 'The signing comment was not authorized; the existing CLA status was not changed.' >&2
+          if [ "${PREFLIGHT_RAN}" != 'true' ]; then
+            echo 'Signing comment admission could not run because member-token or allowlist setup failed; the existing CLA status was not changed.' >&2
+          elif [ "${PREFLIGHT_DECISION}" = 'unauthorized' ]; then
+            echo 'The signing comment was not authorized; the existing CLA status was not changed.' >&2
+          else
+            echo 'Signing comment preflight failed because of an infrastructure or validation error; the existing CLA status was not changed.' >&2
+          fi
           exit 1
 
       - name: Mark CLA status pending
@@ -243,7 +262,9 @@ jobs:
 
       - name: Create organization-members token for signer
         id: members-token
-        if: needs.admission.outputs.operation == 'check'
+        if: >-
+          needs.admission.outputs.operation == 'check' &&
+          (needs.admission.outputs.signing-comment != 'true' || needs.admission.outputs.preflight-ok == 'true')
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
         with:
           app-id: ${{ secrets.CLA_APP_ID }}
@@ -253,7 +274,9 @@ jobs:
           permission-members: read
 
       - name: Resolve and mask signer allowlist
-        if: needs.admission.outputs.operation == 'check'
+        if: >-
+          needs.admission.outputs.operation == 'check' &&
+          (needs.admission.outputs.signing-comment != 'true' || needs.admission.outputs.preflight-ok == 'true')
         env:
           MEMBERS_TOKEN: ${{ steps.members-token.outputs.token }}
           API_URL: ${{ github.api_url }}
@@ -300,7 +323,9 @@ jobs:
 
       - name: Create ledger token
         id: ledger-token
-        if: needs.admission.outputs.operation == 'check'
+        if: >-
+          needs.admission.outputs.operation == 'check' &&
+          (needs.admission.outputs.signing-comment != 'true' || needs.admission.outputs.preflight-ok == 'true')
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
         with:
           app-id: ${{ secrets.CLA_APP_ID }}
@@ -311,7 +336,9 @@ jobs:
 
       - name: Check signatures
         id: cla
-        if: needs.admission.outputs.operation == 'check'
+        if: >-
+          needs.admission.outputs.operation == 'check' &&
+          (needs.admission.outputs.signing-comment != 'true' || needs.admission.outputs.preflight-ok == 'true')
         continue-on-error: true
         uses: tkhq/cla-github-action@47a98247890d866a27f75cdefcade646bc5d06e4 # pin: 47a9824
         with:
