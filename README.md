@@ -3,37 +3,80 @@
 > [!CAUTION]
 > `CLA.md` is a placeholder. Do not require or roll out this workflow until Turnkey Legal supplies and approves the CLA text.
 
-Turnkey repositories should call the reusable workflow in this fork. Copy [`templates/cla.yml`](./templates/cla.yml) to `.github/workflows/cla.yml` in the adopting repository. Keep the full commit SHA in the `uses:` line. Add the `CLA` commit status as a required check in the repository ruleset.
+Turnkey repositories should call the reusable workflow in this fork. Copy [`templates/cla.yml`](./templates/cla.yml) to `.github/workflows/cla.yml` in the adopting repository. Keep the full commit SHA in the `uses:` line.
 
-The reusable workflow stores every signature in the private `tkhq/cla-signatures` repository on `main`. CLA version `v1` uses `signatures/cla-v1.json` and an immutable URL for [`CLA.md`](./CLA.md). Organization members and the fixed bot accounts are exempt by numeric GitHub ID. A repository can add IDs through the optional `extra-allowlist-ids` input.
+Create a ruleset for the protected contribution branch only. For the standard template, scope the ruleset to `main`. Add a required commit status and type `CLA` manually as its context. GitHub might not offer the context in the selection list until the first status exists.
 
-The caller uses a remote, pinned action reference instead of `./`. A relative action reference in a reusable workflow resolves against the caller repository and also requires a checkout. The workflow must run the audited action bundle from this repository without checking out pull request code.
+The reusable workflow stores every signature in the private `tkhq/cla-signatures` repository on `main`. Workflow-level environment values define the CLA version, document URL, and signing phrase once. Version `v1` uses `signatures/cla-v1.json`. Organization members and the fixed bot accounts are exempt by numeric GitHub ID.
+
+Copilot, coding agents, self-hosted Renovate, and other automation can use different account IDs. Add each verified numeric ID through the `extra-allowlist-ids` input. Bot accounts cannot sign.
+
+The caller uses a remote, pinned action reference instead of `./`. A relative action reference in a reusable workflow resolves against the caller workspace and requires a checkout. This workflow runs the audited bundle without checking out pull request code.
+
+## Repositories with another contribution branch
+
+Keep the caller event filter and reusable-workflow input consistent. For example, a repository that accepts contributions to `master` must change both values:
+
+```yaml
+on:
+  pull_request_target:
+    branches: [master]
+
+jobs:
+  cla:
+    uses: tkhq/cla-github-action/.github/workflows/cla.yml@<FULL_SHA>
+    with:
+      required-base-ref: master
+```
+
+Retargeting a pull request does not trigger this workflow. Push another commit or comment `recheck` after a retarget.
 
 ## One-time organization setup
 
 1. Create the private repository `tkhq/cla-signatures` with default branch `main`.
 2. Protect `main`. Permit writes only from the CLA GitHub App.
-3. Create a GitHub App with these permissions:
+3. Give the App bypass permission for the `main` protection. The App writes through the Contents API.
+4. Create a GitHub App with these permissions:
    - Repository Contents: read and write.
    - Organization Members: read.
-4. Install the App on `tkhq`. Select only the `cla-signatures` repository.
-5. Create the organization secrets `CLA_APP_ID` and `CLA_APP_PRIVATE_KEY`.
-6. Scope both secrets to the repositories that adopt the workflow.
-7. Allow `tkhq/cla-github-action` in the organization Actions policy.
-8. Enable GitHub Actions on this fork.
-9. Protect `master` on this fork and require CODEOWNERS review.
+5. Install the App on `tkhq`. Select only the `cla-signatures` repository.
+6. Create the organization secrets `CLA_APP_ID` and `CLA_APP_PRIVATE_KEY`.
+7. Scope both secrets to the repositories that adopt the workflow.
+8. Allow `tkhq/cla-github-action` in the organization Actions policy.
+9. Enable GitHub Actions on this fork.
+10. Protect `master` on this fork and require CODEOWNERS review.
+
+The interim CODEOWNERS rule names one person. If that person authors a pull request, add a second eligible owner or use a documented administrator bypass.
 
 ## Security model
 
 The caller uses `pull_request_target` because it needs base-repository secrets and write access. The reusable workflow never checks out pull request code. It passes comment text through environment variables, uses read-only admission permissions, and gives the writer only repository read, comment write, and status write permissions. It does not request `actions: write` or `contents: write` on the caller repository.
 
-A signing comment must pass a read-only preflight. The writer binds the exact comment, pull request head SHA, and base SHA before it can update the ledger. A force-push or base update between jobs fails closed. Member lookup also fails closed. The workflow lists every `tkhq` member with the App token, paginates the response, and passes numeric IDs to both action runs. It never exempts a pull request from `author_association` or from the opener alone.
+A signing comment must pass a read-only preflight. The writer binds the exact comment and pull request head SHA before it updates the ledger. Signing comments also bind the base SHA. A force-push or relevant base update between those jobs fails closed.
 
-The workflow writes the `CLA` commit status on the validated pull request head. It writes `pending` before the privileged check, then writes `success` or `failure` from the action result. A stale run cannot mark a newer head successful. A merged pull request is locked. A closed, unmerged pull request is not locked.
+Member lookup fails closed. Each action job lists every `tkhq` member with a separate App token and paginates the response. The workflow masks the resulting ID list and passes it through a named environment variable. The list does not appear as an action `with:` value. The workflow never exempts a pull request from `author_association` or from the opener alone.
+
+The workflow writes the `CLA` commit status on the validated pull request head. An unauthorized signing comment fails its workflow run but does not change the `CLA` status. A stale pull request lifecycle run cannot write a status to a newer head. A merged pull request is locked. A closed, unmerged pull request is not locked.
+
+GitHub concurrency keeps one running and one pending run per group. If a third run queues, GitHub can cancel the older pending run even when `cancel-in-progress` is false. If a CLA run is cancelled, comment `recheck`.
+
+A failed comment-triggered workflow can show a cosmetic red check on the default-branch HEAD in the Actions UI. The authoritative merge requirement is the `CLA` commit status on the pull request head.
+
+Commits with an email that GitHub does not link to an account have user ID `0`. Such an identity cannot sign. Re-author the commits with an email linked to the contributor's GitHub account.
+
+The current workflow does not handle `merge_group`. A repository that enables a merge queue cannot require this `CLA` status until the reusable workflow adds merge-group handling. At present, `rust-sdk` and `qos` do not use merge queues.
+
+All-exempt pull requests, including member-only and configured bot pull requests, pass without a new bot comment. Set `suppress-all-exempt-comment: 'false'` only if a repository needs those comments.
+
+## Pin and release policy
+
+This repository is merge-commit-only for changes that contain consumer pins. Do not squash or rebase these pull requests. Every action, document, and reusable-workflow SHA used by consumers must remain reachable from `master`.
+
+The initial rollout uses full commit SHAs with short-SHA comments. After rollout validation, create an annotated `v1` tag and protect it with a tag ruleset. Continue to pin callers to immutable full SHAs even after the tag exists.
 
 ## Change the CLA terms
 
-Treat each terms change as a new CLA version. Update the version constant in `.github/workflows/cla.yml`, change the ledger path to `signatures/cla-vN.json`, and pin the document URL to the commit that contains the approved text. Existing signatures must not carry over to the new ledger. Update the caller pin after the workflow change is merged and audited.
+Treat each terms change as a new CLA version. Update `CLA_VERSION` and `CLA_DOCUMENT_URL` in `.github/workflows/cla.yml`. Pin the document URL to the commit that contains the approved text. The workflow derives the ledger path from `CLA_VERSION`. Existing signatures must not carry over to the new ledger. Update the caller pin after the workflow change is merged and audited.
 
 ## Sync upstream fixes
 
@@ -342,6 +385,7 @@ Do not configure `PERSONAL_ACCESS_TOKEN` when signatures stay in the current rep
 | `expected-comment-created-at`   | _optional_  | Exact creation timestamp emitted by `signer-preflight` for the authenticated signing comment. Required when `expected-comment-id` is set. | `${{ steps.preflight.outputs.comment_created_at }}` |
 | `expected-comment-author-id`   | _optional_  | Numeric GitHub account ID emitted by `signer-preflight` for the authenticated signing comment. Required when `expected-comment-id` is set. | `${{ steps.preflight.outputs.comment_author_id }}` |
 | `allowlist-ids`   | _optional_ | Comma-separated numeric GitHub user IDs that never need to sign, as the opener or as a primary commit author. Unlinked identities cannot match. | Maintainer and reviewed automation account IDs. |
+| `allowlist-ids-env`   | _optional_ | Name of an uppercase environment variable that contains `allowlist-ids`. Do not combine it with the direct input. | `CLA_ALLOWLIST_IDS` |
 | `allowlist`   | _deprecated_ | Ignored. Raw names, emails, and globs are unsafe identity evidence. | |
 | `remote-repository-name`   | _optional_ | provide the remote repository name where all the signatures should be stored . | remote repository name |
 | `remote-organization-name`   | _optional_ | provide the remote organization name where all the signatures should be stored. | remote organization name |
@@ -352,6 +396,7 @@ Do not configure `PERSONAL_ACCESS_TOKEN` when signatures stay in the current rep
 | `custom-allsigned-prcomment`   | _optional_ | pull request comment when everyone has signed | All Contributors have signed the CLA. |
 | `lock-pullrequest-aftermerge`   | _optional_ | Boolean input for locking the pull request after merging. Default is set to `true`.  It is highly recommended to lock the Pull Request after merging so that the Contributors won't be able to revoke their signature comments after merge | false |
 | `suggest-recheck`   | _optional_ | Boolean input for indicating if the action's comment should suggest that users comment `recheck`. Default is set to `true`. | false |
+| `suppress-all-exempt-comment`   | _optional_ | When `true` (default), do not create a bot comment if every Pull Request identity is allowlisted and no trusted bot comment exists. | true |
 | `use-dco-flag`   | _optional_ | Boolean input. Set to `true` to run the action in DCO (Developer Certificate of Origin) mode instead of CLA mode. The bot's prompts and persistence logic use DCO wording. Default is `false`. | true |
 | `require-opener-as-author`   | _optional_ | Boolean input. When `true` (the default), fail the check if the Pull Request opener is not recorded as an author or co-author of any commit. Committer metadata does not qualify. Set to `false` for legitimate cherry-pick or patch-submission workflows. | true |
 

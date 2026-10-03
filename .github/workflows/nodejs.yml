@@ -26,10 +26,10 @@ jobs:
       with:
         persist-credentials: false
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      # No runtime artifacts are published from this test-only workflow.
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 zizmor: ignore[cache-poisoning]
       with:
         node-version: ${{ matrix.node-version }}
-        package-manager-cache: false
     - name: Npm install
       run: npm ci
     - name: Npm build
