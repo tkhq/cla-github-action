@@ -6,6 +6,7 @@ import * as core from '@actions/core'
 import * as input from './shared/getInputs'
 import { validateMergedPullRequestForLock } from './livePullRequest'
 import { requireHttpsDocumentUrl } from './shared/documentUrl'
+import { errorMessage } from './shared/errors'
 import { runSignerPreflight, setSignerDecision } from './signerPreflight'
 
 export async function run() {
@@ -61,7 +62,7 @@ export async function run() {
 
     await setupClaCheck()
   } catch (error) {
-    if (error instanceof Error) core.setFailed(error.message)
+    core.setFailed(errorMessage(error))
   }
 }
 
