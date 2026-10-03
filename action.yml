@@ -1,8 +1,8 @@
-name: "CLA assistant lite"
-description: "An action to handle the Contributor License Agreement (CLA) and Developer Certificate of Origin (DCO)"
-author: "SAP"
+name: 'CLA assistant lite'
+description: 'An action to handle the Contributor License Agreement (CLA) and Developer Certificate of Origin (DCO)'
+author: 'SAP'
 branding:
-  icon: "award"
+  icon: 'award'
   color: blue
 inputs:
   mode:
@@ -11,28 +11,28 @@ inputs:
       signature ledger. Set 'signer-preflight' only in an unprivileged gate to
       authenticate the current exact signing comment and emit
       'signer_authorized' without writing comments or signature data.
-    default: "sign"
+    default: 'sign'
   path-to-signatures:
-    description: "Give a path for storing CLAs in a json file "
-    default: "./signatures/cla.json"
+    description: 'Give a path for storing CLAs in a json file '
+    default: './signatures/cla.json'
   branch:
-    description: "Branch where signatures are stored. Restrict writes to trusted CLA automation and ensure its token can write."
-    default: "master"
+    description: 'Branch where signatures are stored. Restrict writes to trusted CLA automation and ensure its token can write.'
+    default: 'master'
   required-base-ref:
-    description: "Pull Request base branch allowed to write signatures or be locked after merge. Repositories that accept contributions to another branch must override the secure main default."
-    default: "main"
+    description: 'Pull Request base branch allowed to write signatures or be locked after merge. Repositories that accept contributions to another branch must override the secure main default.'
+    default: 'main'
   expected-head-sha:
     description: >
       Optional exact live Pull Request head commit SHA observed by a preceding
       read-only signer-preflight. When set, both signer-preflight and the
       write-capable signer fail closed if the live head differs.
-    default: ""
+    default: ''
   expected-base-sha:
     description: >
       Optional exact live Pull Request base commit SHA observed by a preceding
       read-only signer-preflight. When set, both signer-preflight and the
       write-capable signer fail closed if the live base differs.
-    default: ""
+    default: ''
   expected-comment-id:
     description: >
       Optional REST ID of the exact signing comment authenticated by a
@@ -40,56 +40,61 @@ inputs:
       expected-comment-created-at and expected-comment-author-id for a
       cross-job signer handoff. The write-capable signer fails closed when the
       comment is missing, edited, or replaced.
-    default: ""
+    default: ''
   expected-comment-created-at:
     description: >
       Creation timestamp of the exact signing comment authenticated by
       signer-preflight. This input is required when expected-comment-id is set.
-    default: ""
+    default: ''
   expected-comment-author-id:
     description: >
       Numeric GitHub account ID of the exact signing comment author
       authenticated by signer-preflight. This input is required when
       expected-comment-id is set.
-    default: ""
+    default: ''
   allowlist:
-    description: "Deprecated and ignored. Raw names, emails, and globs can be spoofed in commit metadata."
-    default: ""
+    description: 'Deprecated and ignored. Raw names, emails, and globs can be spoofed in commit metadata.'
+    default: ''
   allowlist-ids:
-    description: "Comma-separated numeric GitHub user IDs that never need to sign, as the Pull Request opener or as a commit author. Unlinked identities cannot match."
-    default: ""
+    description: 'Comma-separated numeric GitHub user IDs that never need to sign, as the Pull Request opener or as a commit author. Unlinked identities cannot match.'
+    default: ''
   allowlist-ids-env:
     description: >
       Optional environment-variable name containing allowlist-ids. Use this to
       mask sensitive organization membership IDs before the action starts.
       Do not set this together with allowlist-ids.
-    default: ""
+    default: ''
   remote-repository-name:
-    description: "provide the remote repository name where all the signatures should be stored"
+    description: 'provide the remote repository name where all the signatures should be stored'
   remote-organization-name:
-    description: "provide the remote organization name where all the signatures should be stored"
+    description: 'provide the remote organization name where all the signatures should be stored'
   path-to-document:
-    description: "Non-empty absolute HTTPS URL for the CLA or DCO document"
+    description: 'Non-empty absolute HTTPS URL for the CLA or DCO document'
     required: true
   signed-commit-message:
-    description: "Commit message when a new contributor signs the CLA in a PR"
+    description: 'Commit message when a new contributor signs the CLA in a PR'
   create-file-commit-message:
-    description: "Commit message when a new file is created"
+    description: 'Commit message when a new file is created'
   custom-notsigned-prcomment:
-    description: "Introductory message to ask new contributors to sign"
+    description: 'Introductory message to ask new contributors to sign'
   custom-pr-sign-comment:
-    description: "The signature to be committed in order to sign the CLA."
+    description: 'The signature to be committed in order to sign the CLA.'
   custom-allsigned-prcomment:
-    description: "pull request comment when everyone has signed, defaults to **CLA Assistant Lite** All Contributors have signed the CLA."
+    description: 'pull request comment when everyone has signed, defaults to **CLA Assistant Lite** All Contributors have signed the CLA.'
   use-dco-flag:
-    description: "Set this to true if you want to use a dco instead of a cla"
-    default: "false"
+    description: 'Set this to true if you want to use a dco instead of a cla'
+    default: 'false'
   lock-pullrequest-aftermerge:
-    description: "Will lock the pull request after merge so that the signature the contributors cannot revoke their signature comments after merge"
-    default: "true"
+    description: 'Will lock the pull request after merge so that the signature the contributors cannot revoke their signature comments after merge'
+    default: 'true'
   suggest-recheck:
     description: "Controls whether or not the action's comment should suggest that users comment `recheck`."
-    default: "true"
+    default: 'true'
+  suppress-all-exempt-comment:
+    description: >
+      When true, do not create a bot comment if every Pull Request identity is
+      allowlisted and no trusted CLA bot comment exists. The CLA result still passes.
+    default: 'true'
   require-opener-as-author:
     description: >
       When 'true' (the default), fail the check if the Pull Request opener is
@@ -99,7 +104,7 @@ inputs:
       workflows where the PR submitter legitimately pushes commits authored by
       others (cherry-picks, release-engineering patch submission, mailing-list
       style contribution workflows).
-    default: "true"
+    default: 'true'
 outputs:
   cla_passed:
     description: >
@@ -160,5 +165,5 @@ outputs:
       the signing comment author. Pass it to the writer as
       expected-comment-author-id.
 runs:
-  using: "node24"
+  using: 'node24'
   main: 'dist/index.js'

@@ -135,6 +135,35 @@ describe('prCommentSetup', () => {
     http.assertClean()
   })
 
+  it('suppresses a new comment when every Pull Request identity is exempt', async () => {
+    listCommentsInterceptor(http, [])
+
+    const prCommentSetup = loadModule()
+    const result = await prCommentSetup(
+      { signed: [], notSigned: [], unknown: [] },
+      []
+    )
+
+    expect(result.allSignedFlag).toBe(true)
+    http.assertClean()
+  })
+
+  it('can create an all-signed comment for an all-exempt Pull Request when suppression is disabled', async () => {
+    setDefaultInputs({ 'suppress-all-exempt-comment': 'false' })
+    listCommentsInterceptor(http, [], 2)
+    const captured = captureJson(
+      http.github(),
+      { path: '/repos/acme/widgets/issues/42/comments', method: 'POST' },
+      { status: 201, body: { id: 999 } }
+    )
+
+    const prCommentSetup = loadModule()
+    await prCommentSetup({ signed: [], notSigned: [], unknown: [] }, [])
+
+    expect(captured.body.body).toMatch(/all contributors have signed the cla/i)
+    http.assertClean()
+  })
+
   it('posts an all-signed comment when there is no prior bot comment and everyone is already signed', async () => {
     listCommentsInterceptor(http, [], 2)
     const captured = captureJson(

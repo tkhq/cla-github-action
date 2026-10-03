@@ -277,6 +277,7 @@ describe('commentContent (CLA mode)', () => {
     setInput('suggest-recheck', 'true')
     const body = commentContent(false, committerMap())
     expect(body).toContain('retrigger this bot by commenting **recheck**')
+    expect(body).toContain('If your workflow run was cancelled')
   })
 })
 

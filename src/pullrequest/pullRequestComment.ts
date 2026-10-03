@@ -3,7 +3,7 @@ import { context } from '@actions/github'
 import signatureWithPRComment from './signatureComment'
 import { commentContent } from './pullRequestCommentContent'
 import { CommitterMap, Committer, ReactedCommitterMap } from '../interfaces'
-import { getUseDcoFlag } from '../shared/getInputs'
+import { getUseDcoFlag, suppressAllExemptComment } from '../shared/getInputs'
 import { errorMessage } from '../shared/errors'
 import * as core from '@actions/core'
 import {
@@ -77,6 +77,25 @@ export async function preparePrComment(
       throw new Error('The trusted CLA bot comment has an invalid ID')
     }
     const initialBotComment = snapshotBotComment(claBotComment)
+
+    if (
+      !claBotComment &&
+      committers.length === 0 &&
+      suppressAllExemptComment()
+    ) {
+      return {
+        reactedCommitters: {
+          newSigned: [],
+          onlyCommitters: [],
+          allSignedFlag: true
+        },
+        apply: async () => {
+          core.info(
+            'All Pull Request identities are allowlisted; suppressing the all-signed bot comment.'
+          )
+        }
+      }
+    }
 
     // Reacted committers are contributors who have newly signed by posting
     // the Pull Request comment.

@@ -141,6 +141,9 @@ export const lockPullRequestAfterMerge = (): boolean =>
 
 export const suggestRecheck = (): boolean => getBooleanInput('suggest-recheck')
 
+export const suppressAllExemptComment = (): boolean =>
+  getBooleanInput('suppress-all-exempt-comment', true)
+
 /**
  * Whether the PR opener must be recorded as an author or co-author of at
  * least one commit in the PR. Committer metadata does not qualify because it
