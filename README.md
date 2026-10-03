@@ -1,3 +1,46 @@
+# Turnkey organization CLA workflow
+
+> [!CAUTION]
+> `CLA.md` is a placeholder. Do not require or roll out this workflow until Turnkey Legal supplies and approves the CLA text.
+
+Turnkey repositories should call the reusable workflow in this fork. Copy [`templates/cla.yml`](./templates/cla.yml) to `.github/workflows/cla.yml` in the adopting repository. Keep the full commit SHA in the `uses:` line. Add the `CLA` commit status as a required check in the repository ruleset.
+
+The reusable workflow stores every signature in the private `tkhq/cla-signatures` repository on `main`. CLA version `v1` uses `signatures/cla-v1.json` and an immutable URL for [`CLA.md`](./CLA.md). Organization members and the fixed bot accounts are exempt by numeric GitHub ID. A repository can add IDs through the optional `extra-allowlist-ids` input.
+
+The caller uses a remote, pinned action reference instead of `./`. A relative action reference in a reusable workflow resolves against the caller repository and also requires a checkout. The workflow must run the audited action bundle from this repository without checking out pull request code.
+
+## One-time organization setup
+
+1. Create the private repository `tkhq/cla-signatures` with default branch `main`.
+2. Protect `main`. Permit writes only from the CLA GitHub App.
+3. Create a GitHub App with these permissions:
+   - Repository Contents: read and write.
+   - Organization Members: read.
+4. Install the App on `tkhq`. Select only the `cla-signatures` repository.
+5. Create the organization secrets `CLA_APP_ID` and `CLA_APP_PRIVATE_KEY`.
+6. Scope both secrets to the repositories that adopt the workflow.
+7. Allow `tkhq/cla-github-action` in the organization Actions policy.
+8. Enable GitHub Actions on this fork.
+9. Protect `master` on this fork and require CODEOWNERS review.
+
+## Security model
+
+The caller uses `pull_request_target` because it needs base-repository secrets and write access. The reusable workflow never checks out pull request code. It passes comment text through environment variables, uses read-only admission permissions, and gives the writer only repository read, comment write, and status write permissions. It does not request `actions: write` or `contents: write` on the caller repository.
+
+A signing comment must pass a read-only preflight. The writer binds the exact comment, pull request head SHA, and base SHA before it can update the ledger. A force-push or base update between jobs fails closed. Member lookup also fails closed. The workflow lists every `tkhq` member with the App token, paginates the response, and passes numeric IDs to both action runs. It never exempts a pull request from `author_association` or from the opener alone.
+
+The workflow writes the `CLA` commit status on the validated pull request head. It writes `pending` before the privileged check, then writes `success` or `failure` from the action result. A stale run cannot mark a newer head successful. A merged pull request is locked. A closed, unmerged pull request is not locked.
+
+## Change the CLA terms
+
+Treat each terms change as a new CLA version. Update the version constant in `.github/workflows/cla.yml`, change the ledger path to `signatures/cla-vN.json`, and pin the document URL to the commit that contains the approved text. Existing signatures must not carry over to the new ledger. Update the caller pin after the workflow change is merged and audited.
+
+## Sync upstream fixes
+
+Review each upstream change instead of merging it blindly. Apply the selected changes, install with `npm ci`, and build with Node 24 by running `npm run build`. Confirm that a second clean build produces the same `dist/index.js`. Run the tests, lint, production audit, actionlint, zizmor, and the bundle checks from `.github/workflows/nodejs.yml` before updating any consumer pin.
+
+---
+
 > [!NOTE]
 > This is the [manaflow-ai/cla-github-action](https://github.com/manaflow-ai/cla-github-action)
 > fork of [cla-assistant/github-action](https://github.com/cla-assistant/github-action),
