@@ -52,6 +52,19 @@ describe('persistence', () => {
       http.assertClean()
     })
 
+    it.each([
+      ['remote-organization-name', 'other-org'],
+      ['remote-repository-name', 'other-repo']
+    ])('rejects a partial remote ledger target (%s)', async (name, value) => {
+      setInput(name, value)
+      const { getFileContent } = loadPersistence()
+
+      await expect(getFileContent()).rejects.toThrow(
+        /remote-organization-name and remote-repository-name must be provided together/i
+      )
+      http.assertClean()
+    })
+
     it('routes to the remote org/repo when configured', async () => {
       setInput('remote-organization-name', 'other-org')
       setInput('remote-repository-name', 'other-repo')

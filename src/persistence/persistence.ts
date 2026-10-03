@@ -19,11 +19,18 @@ interface SignaturesTarget {
 }
 
 function resolveSignaturesTarget(): SignaturesTarget {
-  const remote = Boolean(input.getRemoteRepoName() || input.getRemoteOrgName())
+  const remoteRepo = input.getRemoteRepoName()
+  const remoteOrg = input.getRemoteOrgName()
+  if (Boolean(remoteRepo) !== Boolean(remoteOrg)) {
+    throw new Error(
+      'remote-organization-name and remote-repository-name must be provided together'
+    )
+  }
+  const remote = Boolean(remoteRepo)
   return {
     octokit: remote ? getPATOctokit() : getDefaultOctokitClient(),
-    owner: input.getRemoteOrgName() || context.repo.owner,
-    repo: input.getRemoteRepoName() || context.repo.repo,
+    owner: remoteOrg || context.repo.owner,
+    repo: remoteRepo || context.repo.repo,
     path: input.getPathToSignatures(),
     branch: input.getBranch()
   }
