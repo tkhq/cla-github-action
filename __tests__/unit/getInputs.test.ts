@@ -54,6 +54,40 @@ describe('getInputs wrappers', () => {
     }
   )
 
+  it('reads allowlist IDs directly', () => {
+    setInput('allowlist-ids', '1,2,3')
+    expect(inputs.getAllowListIds()).toBe('1,2,3')
+  })
+
+  it('reads allowlist IDs from a named environment variable', () => {
+    setInput('allowlist-ids-env', 'CLA_ALLOWLIST_IDS')
+    process.env.CLA_ALLOWLIST_IDS = '4,5,6'
+    try {
+      expect(inputs.getAllowListIds()).toBe('4,5,6')
+    } finally {
+      delete process.env.CLA_ALLOWLIST_IDS
+    }
+  })
+
+  it('rejects conflicting direct and environment allowlists', () => {
+    setInput('allowlist-ids', '1')
+    setInput('allowlist-ids-env', 'CLA_ALLOWLIST_IDS')
+    expect(() => inputs.getAllowListIds()).toThrow(/cannot both be set/i)
+  })
+
+  it.each(['lowercase', '1_IDS', 'CLA-IDS'])(
+    'rejects an invalid allowlist environment variable name (%s)',
+    envName => {
+      setInput('allowlist-ids-env', envName)
+      expect(() => inputs.getAllowListIds()).toThrow(/uppercase environment/i)
+    }
+  )
+
+  it('rejects an unset allowlist environment variable', () => {
+    setInput('allowlist-ids-env', 'CLA_ALLOWLIST_IDS')
+    expect(() => inputs.getAllowListIds()).toThrow(/unset variable/i)
+  })
+
   it('returns an empty string when the input is unset', () => {
     expect(inputs.getBranch()).toBe('')
   })

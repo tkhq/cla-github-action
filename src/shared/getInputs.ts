@@ -100,8 +100,24 @@ export const getRequiredBaseRef = (): string =>
 export const getAllowListItem = (): string =>
   core.getInput('allowlist', { required: false })
 
-export const getAllowListIds = (): string =>
-  core.getInput('allowlist-ids', { required: false })
+export const getAllowListIds = (): string => {
+  const direct = core.getInput('allowlist-ids', { required: false })
+  const envName = core.getInput('allowlist-ids-env', { required: false }).trim()
+  if (direct && envName) {
+    throw new Error('allowlist-ids and allowlist-ids-env cannot both be set')
+  }
+  if (!envName) return direct
+  if (!/^[A-Z_][A-Z0-9_]*$/.test(envName)) {
+    throw new Error(
+      'allowlist-ids-env must name an uppercase environment variable'
+    )
+  }
+  const value = process.env[envName]
+  if (value === undefined) {
+    throw new Error(`allowlist-ids-env references unset variable ${envName}`)
+  }
+  return value
+}
 
 export const getSignedCommitMessage = (): string =>
   core.getInput('signed-commit-message', { required: false })
