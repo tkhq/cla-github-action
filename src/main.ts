@@ -23,6 +23,7 @@ export async function run() {
     core.setOutput('comment_author_id', '')
 
     requireHttpsDocumentUrl()
+    input.validateRemoteLedgerInputs()
 
     const mode = input.getMode()
     if (mode === 'signer-preflight') {

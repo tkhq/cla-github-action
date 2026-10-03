@@ -19,13 +19,7 @@ interface SignaturesTarget {
 }
 
 function resolveSignaturesTarget(): SignaturesTarget {
-  const remoteRepo = input.getRemoteRepoName()
-  const remoteOrg = input.getRemoteOrgName()
-  if (Boolean(remoteRepo) !== Boolean(remoteOrg)) {
-    throw new Error(
-      'remote-organization-name and remote-repository-name must be provided together'
-    )
-  }
+  const { remoteRepo, remoteOrg } = input.validateRemoteLedgerInputs()
   const remote = Boolean(remoteRepo)
   return {
     octokit: remote ? getPATOctokit() : getDefaultOctokitClient(),

@@ -17,6 +17,20 @@ export const getRemoteOrgName = (): string => {
   return core.getInput('remote-organization-name', { required: false })
 }
 
+export function validateRemoteLedgerInputs(): {
+  remoteOrg: string
+  remoteRepo: string
+} {
+  const remoteOrg = getRemoteOrgName()
+  const remoteRepo = getRemoteRepoName()
+  if (Boolean(remoteRepo) !== Boolean(remoteOrg)) {
+    throw new Error(
+      'remote-organization-name and remote-repository-name must be provided together'
+    )
+  }
+  return { remoteOrg, remoteRepo }
+}
+
 export const getPathToSignatures = (): string =>
   core.getInput('path-to-signatures', { required: false })
 
