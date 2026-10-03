@@ -44,6 +44,16 @@ describe('getInputs wrappers', () => {
     expect((inputs[fn] as () => boolean)()).toBe(false)
   })
 
+  it.each(booleanInputs)(
+    '%s rejects a malformed "%s" boolean',
+    (fn, inputName) => {
+      setInput(inputName, 'yes')
+      expect(() => (inputs[fn] as () => boolean)()).toThrow(
+        new RegExp(`${inputName}.*true.*false`, 'i')
+      )
+    }
+  )
+
   it('returns an empty string when the input is unset', () => {
     expect(inputs.getBranch()).toBe('')
   })

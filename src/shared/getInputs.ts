@@ -127,14 +127,14 @@ export const requireOpenerAsAuthor = (): boolean =>
 /**
  * Parses the action input as a boolean, tolerating unset / empty. Actions
  * accept only strings; 'true' / 'false' (case-insensitive) are the supported
- * values. Anything else falls back to `fallback` (default false), so an
- * unset input preserves the semantics the caller wants.
+ * values. An unset input uses `fallback`; any other value is rejected.
  */
 function getBooleanInput(name: string, fallback = false): boolean {
   const raw = core.getInput(name, { required: false }).toLowerCase().trim()
+  if (raw === '') return fallback
   if (raw === 'true') return true
   if (raw === 'false') return false
-  return fallback
+  throw new Error(`${name} must be either 'true' or 'false'`)
 }
 
 function parsePositiveSafeInteger(value: string): number | undefined {
