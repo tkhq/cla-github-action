@@ -1,1 +1,8 @@
-* @lawrencecchen
+# Interim owner; move these rules to a Turnkey security team.
+* @richardpringle
+/src/** @richardpringle
+/dist/** @richardpringle
+/action.yml @richardpringle
+/package.json @richardpringle
+/package-lock.json @richardpringle
+/.github/** @richardpringle
