@@ -54,7 +54,7 @@ The caller uses `pull_request_target` because it needs base-repository secrets a
 
 A signing comment must pass a read-only preflight. The writer binds the exact comment and pull request head SHA before it updates the ledger. Signing comments also bind the base SHA. A force-push or relevant base update between those jobs fails closed.
 
-Member lookup fails closed. Each action job lists every `tkhq` member with a separate App token and paginates the response. The workflow masks the resulting ID list and passes it through a named environment variable. The list does not appear as an action `with:` value. The workflow never exempts a pull request from `author_association` or from the opener alone.
+Member lookup fails closed. Before each action invocation that needs exemptions, its job lists every `tkhq` member with a separate App token and paginates the response. The workflow masks the resulting ID list and passes it through a named environment variable. The list does not appear as an action `with:` value. The workflow never exempts a pull request from `author_association` or from the opener alone.
 
 The workflow writes the `CLA` commit status on the validated pull request head. An unauthorized signing comment fails its workflow run but does not change the `CLA` status. A stale pull request lifecycle run cannot write a status to a newer head. A merged pull request is locked. A closed, unmerged pull request is not locked.
 

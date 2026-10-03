@@ -22,6 +22,8 @@ on:
 permissions: {}
 
 env:
+  CLA_VERSION: v1
+  CLA_DOCUMENT_URL: https://raw.githubusercontent.com/tkhq/cla-github-action/47a98247890d866a27f75cdefcade646bc5d06e4/CLA.md
   CLA_SIGNING_PHRASE: I have read the CLA Document and I hereby sign the CLA
 
 jobs:
@@ -38,7 +40,6 @@ jobs:
       pr-number: ${{ steps.classify.outputs.pr_number }}
       head-sha: ${{ steps.pull.outputs.head_sha }}
       base-sha: ${{ steps.pull.outputs.base_sha }}
-      allowlist-ids: ${{ steps.members.outputs.allowlist_ids }}
       preflight-ok: ${{ steps.preflight.outcome == 'success' }}
       comment-id: ${{ steps.preflight.outputs.comment_id }}
       comment-created-at: ${{ steps.preflight.outputs.comment_created_at }}
@@ -52,6 +53,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_MERGED: ${{ github.event.pull_request.merged }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_STATE: ${{ github.event.issue.state }}
           IS_PR_COMMENT: ${{ github.event.issue.pull_request != null }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           SIGNING_PHRASE: ${{ env.CLA_SIGNING_PHRASE }}
@@ -74,6 +76,7 @@ jobs:
           } else if (
             process.env.EVENT_NAME === 'issue_comment' &&
             process.env.EVENT_ACTION === 'created' &&
+            process.env.ISSUE_STATE === 'open' &&
             process.env.IS_PR_COMMENT === 'true'
           ) {
             const body = (process.env.COMMENT_BODY || '').trim()
@@ -91,16 +94,27 @@ jobs:
           fs.appendFileSync(output, `pr_number=${prNumber}\n`)
           NODE
 
-      - name: Read live pull request identity
+      - name: Bind pull request identity
         id: pull
         if: steps.classify.outputs.operation == 'check'
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
           API_URL: ${{ github.api_url }}
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ steps.classify.outputs.pr_number }}
         run: |
           set -euo pipefail
+          if [ "${EVENT_NAME}" = 'pull_request_target' ]; then
+            if [[ ! "${EVENT_HEAD_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo 'pull_request_target event has an invalid head SHA' >&2
+              exit 1
+            fi
+            printf 'head_sha=%s\nbase_sha=\n' "${EVENT_HEAD_SHA}" >>"${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
           response="$(curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H 'Accept: application/vnd.github+json' \
@@ -110,9 +124,9 @@ jobs:
           base_sha="$(jq -er '.base.sha | select(test("^[0-9a-fA-F]{40}$"))' <<<"${response}")"
           printf 'head_sha=%s\nbase_sha=%s\n' "${head_sha}" "${base_sha}" >>"${GITHUB_OUTPUT}"
 
-      - name: Create organization-members token
+      - name: Create organization-members token for preflight
         id: members-token
-        if: steps.classify.outputs.operation == 'check'
+        if: steps.classify.outputs.signing_comment == 'true'
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
         with:
           app-id: ${{ secrets.CLA_APP_ID }}
@@ -121,9 +135,8 @@ jobs:
           repositories: cla-signatures
           permission-members: read
 
-      - name: Build member and bot allowlist
-        id: members
-        if: steps.classify.outputs.operation == 'check'
+      - name: Resolve and mask preflight allowlist
+        if: steps.classify.outputs.signing_comment == 'true'
         env:
           MEMBERS_TOKEN: ${{ steps.members-token.outputs.token }}
           API_URL: ${{ github.api_url }}
@@ -165,20 +178,21 @@ jobs:
           process.stdout.write([...ids].sort((a, b) => a - b).join(','))
           NODE
           )"
-          printf 'allowlist_ids=%s\n' "${allowlist}" >>"${GITHUB_OUTPUT}"
+          echo "::add-mask::${allowlist}"
+          printf 'CLA_ALLOWLIST_IDS=%s\n' "${allowlist}" >>"${GITHUB_ENV}"
 
       - name: Authenticate signing comment
         id: preflight
         if: steps.classify.outputs.signing_comment == 'true'
         continue-on-error: true
-        uses: tkhq/cla-github-action@1ec543dfcd61aee45087cae6c6fe7f15fbc0d3ec
+        uses: tkhq/cla-github-action@47a98247890d866a27f75cdefcade646bc5d06e4 # pin: 47a9824
         with:
           mode: signer-preflight
-          path-to-document: https://raw.githubusercontent.com/tkhq/cla-github-action/9358264450cca67b48083633d54f4041b0872cfb/CLA.md
+          path-to-document: ${{ env.CLA_DOCUMENT_URL }}
           required-base-ref: ${{ inputs.required-base-ref }}
           expected-head-sha: ${{ steps.pull.outputs.head_sha }}
           expected-base-sha: ${{ steps.pull.outputs.base_sha }}
-          allowlist-ids: ${{ steps.members.outputs.allowlist_ids }}
+          allowlist-ids-env: CLA_ALLOWLIST_IDS
           custom-pr-sign-comment: ${{ env.CLA_SIGNING_PHRASE }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -197,8 +211,16 @@ jobs:
       pull-requests: write
       statuses: write
     steps:
+      - name: Reject unauthorized signing comment
+        if: needs.admission.outputs.signing-comment == 'true' && needs.admission.outputs.preflight-ok != 'true'
+        run: |
+          echo 'The signing comment was not authorized; the existing CLA status was not changed.' >&2
+          exit 1
+
       - name: Mark CLA status pending
-        if: needs.admission.outputs.operation == 'check'
+        if: >-
+          needs.admission.outputs.operation == 'check' &&
+          (needs.admission.outputs.signing-comment != 'true' || needs.admission.outputs.preflight-ok == 'true')
         env:
           GH_TOKEN: ${{ github.token }}
           API_URL: ${{ github.api_url }}
@@ -219,11 +241,66 @@ jobs:
               --data-binary @- \
               "${API_URL}/repos/${REPOSITORY}/statuses/${HEAD_SHA}" >/dev/null
 
+      - name: Create organization-members token for signer
+        id: members-token
+        if: needs.admission.outputs.operation == 'check'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.CLA_APP_ID }}
+          private-key: ${{ secrets.CLA_APP_PRIVATE_KEY }}
+          owner: tkhq
+          repositories: cla-signatures
+          permission-members: read
+
+      - name: Resolve and mask signer allowlist
+        if: needs.admission.outputs.operation == 'check'
+        env:
+          MEMBERS_TOKEN: ${{ steps.members-token.outputs.token }}
+          API_URL: ${{ github.api_url }}
+          EXTRA_ALLOWLIST_IDS: ${{ inputs.extra-allowlist-ids }}
+        run: |
+          set -euo pipefail
+          ids='[]'
+          page=1
+          while :; do
+            response="$(curl --fail-with-body --silent --show-error \
+              -H "Authorization: Bearer ${MEMBERS_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "${API_URL}/orgs/tkhq/members?filter=all&per_page=100&page=${page}")" || {
+                echo 'Failed to list all tkhq organization members; refusing to grant member exemptions.' >&2
+                exit 1
+              }
+            count="$(jq -er 'if type == "array" then length else error("member response is not an array") end' <<<"${response}")"
+            page_ids="$(jq -c '[.[].id | select(type == "number" and . > 0)]' <<<"${response}")"
+            ids="$(jq -cn --argjson left "${ids}" --argjson right "${page_ids}" '$left + $right')"
+            if [ "${count}" -lt 100 ]; then break; fi
+            page=$((page + 1))
+          done
+
+          export MEMBER_IDS="${ids}"
+          allowlist="$(node <<'NODE'
+          const memberIds = JSON.parse(process.env.MEMBER_IDS)
+          const extras = (process.env.EXTRA_ALLOWLIST_IDS || '').split(',')
+          const fixed = [49699333, 41898282, 29139614]
+          const ids = new Set([...memberIds, ...fixed])
+          for (const raw of extras) {
+            const value = raw.trim()
+            if (!value) continue
+            if (!/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(Number(value))) {
+              throw new Error(`extra-allowlist-ids contains an invalid numeric GitHub ID: ${value}`)
+            }
+            ids.add(Number(value))
+          }
+          process.stdout.write([...ids].sort((a, b) => a - b).join(','))
+          NODE
+          )"
+          echo "::add-mask::${allowlist}"
+          printf 'CLA_ALLOWLIST_IDS=%s\n' "${allowlist}" >>"${GITHUB_ENV}"
+
       - name: Create ledger token
         id: ledger-token
-        if: >-
-          needs.admission.outputs.operation == 'check' &&
-          (needs.admission.outputs.signing-comment != 'true' || needs.admission.outputs.preflight-ok == 'true')
+        if: needs.admission.outputs.operation == 'check'
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
         with:
           app-id: ${{ secrets.CLA_APP_ID }}
@@ -234,23 +311,21 @@ jobs:
 
       - name: Check signatures
         id: cla
-        if: >-
-          needs.admission.outputs.operation == 'check' &&
-          (needs.admission.outputs.signing-comment != 'true' || needs.admission.outputs.preflight-ok == 'true')
+        if: needs.admission.outputs.operation == 'check'
         continue-on-error: true
-        uses: tkhq/cla-github-action@1ec543dfcd61aee45087cae6c6fe7f15fbc0d3ec
+        uses: tkhq/cla-github-action@47a98247890d866a27f75cdefcade646bc5d06e4 # pin: 47a9824
         with:
           mode: sign
           branch: main
-          path-to-signatures: signatures/cla-v1.json
-          path-to-document: https://raw.githubusercontent.com/tkhq/cla-github-action/9358264450cca67b48083633d54f4041b0872cfb/CLA.md
+          path-to-signatures: signatures/cla-${{ env.CLA_VERSION }}.json
+          path-to-document: ${{ env.CLA_DOCUMENT_URL }}
           remote-organization-name: tkhq
           remote-repository-name: cla-signatures
           required-base-ref: ${{ inputs.required-base-ref }}
-          allowlist-ids: ${{ needs.admission.outputs.allowlist-ids }}
+          allowlist-ids-env: CLA_ALLOWLIST_IDS
           custom-pr-sign-comment: ${{ env.CLA_SIGNING_PHRASE }}
           expected-head-sha: ${{ needs.admission.outputs.head-sha }}
-          expected-base-sha: ${{ needs.admission.outputs.base-sha }}
+          expected-base-sha: ${{ needs.admission.outputs.signing-comment == 'true' && needs.admission.outputs.base-sha || '' }}
           expected-comment-id: ${{ needs.admission.outputs.comment-id }}
           expected-comment-created-at: ${{ needs.admission.outputs.comment-created-at }}
           expected-comment-author-id: ${{ needs.admission.outputs.comment-author-id }}
@@ -260,23 +335,22 @@ jobs:
 
       - name: Publish final CLA status
         id: status
-        if: always() && needs.admission.outputs.operation == 'check'
+        if: >-
+          always() &&
+          needs.admission.outputs.operation == 'check' &&
+          (needs.admission.outputs.signing-comment != 'true' || needs.admission.outputs.preflight-ok == 'true')
         env:
           GH_TOKEN: ${{ github.token }}
           API_URL: ${{ github.api_url }}
           REPOSITORY: ${{ github.repository }}
           HEAD_SHA: ${{ needs.admission.outputs.head-sha }}
-          SIGNING_COMMENT: ${{ needs.admission.outputs.signing-comment }}
-          PREFLIGHT_OK: ${{ needs.admission.outputs.preflight-ok }}
           ACTION_OUTCOME: ${{ steps.cla.outcome }}
           CLA_PASSED: ${{ steps.cla.outputs.cla_passed }}
         run: |
           set -euo pipefail
           state=failure
           description='CLA validation failed'
-          if [ "${SIGNING_COMMENT}" = 'true' ] && [ "${PREFLIGHT_OK}" != 'true' ]; then
-            description='CLA signing comment was not authorized'
-          elif [ "${ACTION_OUTCOME}" = 'success' ] && [ "${CLA_PASSED}" = 'true' ]; then
+          if [ "${ACTION_OUTCOME}" = 'success' ] && [ "${CLA_PASSED}" = 'true' ]; then
             state=success
             description='All required contributors have signed'
           fi
@@ -300,10 +374,10 @@ jobs:
 
       - name: Lock merged pull request
         if: needs.admission.outputs.operation == 'lock' && github.event.pull_request.merged == true
-        uses: tkhq/cla-github-action@1ec543dfcd61aee45087cae6c6fe7f15fbc0d3ec
+        uses: tkhq/cla-github-action@47a98247890d866a27f75cdefcade646bc5d06e4 # pin: 47a9824
         with:
           mode: sign
-          path-to-document: https://raw.githubusercontent.com/tkhq/cla-github-action/9358264450cca67b48083633d54f4041b0872cfb/CLA.md
+          path-to-document: ${{ env.CLA_DOCUMENT_URL }}
           required-base-ref: ${{ inputs.required-base-ref }}
           lock-pullrequest-aftermerge: 'true'
         env:
