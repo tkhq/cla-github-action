@@ -49295,6 +49295,14 @@ const getRemoteRepoName = () => {
 const getRemoteOrgName = () => {
     return getInput('remote-organization-name', { required: false });
 };
+function validateRemoteLedgerInputs() {
+    const remoteOrg = getRemoteOrgName();
+    const remoteRepo = getRemoteRepoName();
+    if (Boolean(remoteRepo) !== Boolean(remoteOrg)) {
+        throw new Error('remote-organization-name and remote-repository-name must be provided together');
+    }
+    return { remoteOrg, remoteRepo };
+}
 const getPathToSignatures = () => getInput('path-to-signatures', { required: false });
 const getPathToDocument = () => getInput('path-to-document', { required: false });
 const getBranch = () => getInput('branch', { required: false });
@@ -49336,7 +49344,23 @@ const getExpectedSigningComment = () => {
 };
 const getRequiredBaseRef = () => getInput('required-base-ref', { required: false }) || 'main';
 const getAllowListItem = () => getInput('allowlist', { required: false });
-const getAllowListIds = () => getInput('allowlist-ids', { required: false });
+const getAllowListIds = () => {
+    const direct = getInput('allowlist-ids', { required: false });
+    const envName = getInput('allowlist-ids-env', { required: false }).trim();
+    if (direct && envName) {
+        throw new Error('allowlist-ids and allowlist-ids-env cannot both be set');
+    }
+    if (!envName)
+        return direct;
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(envName)) {
+        throw new Error('allowlist-ids-env must name an uppercase environment variable');
+    }
+    const value = process.env[envName];
+    if (value === undefined) {
+        throw new Error(`allowlist-ids-env references unset variable ${envName}`);
+    }
+    return value;
+};
 const getSignedCommitMessage = () => getInput('signed-commit-message', { required: false });
 const getCreateFileCommitMessage = () => getInput('create-file-commit-message', { required: false });
 const getCustomNotSignedPrComment = () => getInput('custom-notsigned-prcomment', { required: false });
@@ -49345,6 +49369,7 @@ const getUseDcoFlag = () => getInputs_getBooleanInput('use-dco-flag');
 const getCustomPrSignComment = () => getInput('custom-pr-sign-comment', { required: false });
 const lockPullRequestAfterMerge = () => getInputs_getBooleanInput('lock-pullrequest-aftermerge');
 const suggestRecheck = () => getInputs_getBooleanInput('suggest-recheck');
+const suppressAllExemptComment = () => getInputs_getBooleanInput('suppress-all-exempt-comment', true);
 /**
  * Whether the PR opener must be recorded as an author or co-author of at
  * least one commit in the PR. Committer metadata does not qualify because it
@@ -49723,11 +49748,7 @@ function actorsMatch(left, right) {
 
 
 function resolveSignaturesTarget() {
-    const remoteRepo = getRemoteRepoName();
-    const remoteOrg = getRemoteOrgName();
-    if (Boolean(remoteRepo) !== Boolean(remoteOrg)) {
-        throw new Error('remote-organization-name and remote-repository-name must be provided together');
-    }
+    const { remoteRepo, remoteOrg } = validateRemoteLedgerInputs();
     const remote = Boolean(remoteRepo);
     return {
         octokit: remote ? getPATOctokit() : getDefaultOctokitClient(),
@@ -50100,7 +50121,7 @@ function renderPending(mode, committerMap) {
     }
     if (suggestRecheck()) {
         text +=
-            '<sub>You can retrigger this bot by commenting **recheck** in this Pull Request. </sub>';
+            '<sub>You can retrigger this bot by commenting **recheck** in this Pull Request. If your workflow run was cancelled, comment **recheck** again. </sub>';
     }
     text += botSignature(mode);
     return text;
@@ -50271,6 +50292,20 @@ async function preparePrComment(committerMap, committers, preloadedComments, acc
             throw new Error('The trusted CLA bot comment has an invalid ID');
         }
         const initialBotComment = snapshotBotComment(claBotComment);
+        if (!claBotComment &&
+            committers.length === 0 &&
+            suppressAllExemptComment()) {
+            return {
+                reactedCommitters: {
+                    newSigned: [],
+                    onlyCommitters: [],
+                    allSignedFlag: true
+                },
+                apply: async () => {
+                    info('All Pull Request identities are allowlisted; suppressing the all-signed bot comment.');
+                }
+            };
+        }
         // Reacted committers are contributors who have newly signed by posting
         // the Pull Request comment.
         const reactedCommitters = acceptSigningComments
@@ -51353,6 +51388,7 @@ async function run() {
         setOutput('comment_created_at', '');
         setOutput('comment_author_id', '');
         requireHttpsDocumentUrl();
+        validateRemoteLedgerInputs();
         const mode = getMode();
         if (mode === 'signer-preflight') {
             await runSignerPreflight();
