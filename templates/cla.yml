@@ -1,0 +1,20 @@
+name: CLA
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    branches: [main]
+    types: [opened,edited,closed,reopened,synchronize,ready_for_review]
+
+permissions: {}
+
+jobs:
+  CLA:
+    uses: tkhq/cla-github-action/.github/workflows/cla.yml@3270d04dfd9c3fa417b9cd4cdcfc181d990a83f9
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    secrets:
+      CLA_APP_ID: ${{ secrets.CLA_APP_ID }}
+      CLA_APP_PRIVATE_KEY: ${{ secrets.CLA_APP_PRIVATE_KEY }}
