@@ -1,0 +1,145 @@
+name: "CLA Assistant v2"
+on:
+  workflow_call:
+    secrets:
+      CLA_APP_ID:
+        required: true
+      CLA_APP_PRIVATE_KEY:
+        required: true
+
+permissions: {}
+
+jobs:
+  CLACommentGate:
+    if: >-
+      (github.event_name == 'pull_request_target' &&
+      (github.event.action == 'opened' || github.event.action == 'edited' ||
+      github.event.action == 'closed' || github.event.action == 'reopened' ||
+      github.event.action == 'synchronize' || github.event.action == 'ready_for_review')) ||
+      (github.event_name == 'issue_comment' &&
+      github.event.action == 'created' &&
+      github.event.comment.user.type == 'User' &&
+      github.event.comment.user.id > 0 &&
+      github.event.issue.state == 'open' && github.event.issue.pull_request &&
+      (github.event.comment.body == 'recheck' ||
+      github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'))
+    name: "CLA Comment Gate"
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    concurrency:
+      group: cla-admission-${{ github.repository }}-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      - name: "Validate exact CLA comment"
+        if: github.event_name == 'issue_comment'
+        shell: bash
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          SIGN_PHRASE: I have read the CLA Document and I hereby sign the CLA
+        run: |
+          if [[ "$COMMENT_BODY" != "recheck" && "$COMMENT_BODY" != "$SIGN_PHRASE" ]]; then
+            echo "::error::Comment must match the recheck command or signing declaration exactly."
+            exit 1
+          fi
+
+  CLAAssistant:
+    name: "CLA Assistant v2"
+    needs: CLACommentGate
+    if: always() && needs.CLACommentGate.result == 'success'
+    outputs:
+      # A trusted same-workflow rerun job may consume this only after it also
+      # binds the current Pull Request, head SHA, base branch, and workflow.
+      signature_recorded: ${{ steps.cla_action.outputs.signature_recorded }}
+      cla_passed: ${{ steps.cla_action.outputs.cla_passed }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read # this can be read if signatures are in a remote repository
+      issues: write
+      pull-requests: write
+      # No statuses permission is needed. The action fails or succeeds this
+      # GitHub Actions job through @actions/core and never calls the commit
+      # status or check-run APIs.
+    # Advisory signer only. A separate trusted exact-head worker is required
+    # when this check is required by branch protection. Serialize signer runs
+    # for one Pull Request. A separate lock job uses the
+    # distinct cla-lock group documented below and validates the live PR too.
+    concurrency:
+      group: cla-signatures-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}
+      # Keep cancellation disabled. GitHub retains one running and one
+      # pending run for this group. CLACommentGate rejects case variants and
+      # arbitrary comments before this privileged queue.
+      cancel-in-progress: false
+    steps:
+      - name: "Mint CLA signatures app token"
+        id: app_token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.CLA_APP_ID }}
+          private-key: ${{ secrets.CLA_APP_PRIVATE_KEY }}
+          owner: tkhq
+          repositories: cla-signatures
+          permission-contents: write
+          permission-members: read
+      - name: "Build tkhq member allowlist"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+        run: |
+          set -euo pipefail
+          DEPENDABOT_ID=49699333  # dependabot[bot]
+          GITHUB_ACTIONS_ID=41898282  # github-actions[bot]
+          RENOVATE_ID=29139614  # renovate[bot]
+          ids=""
+          page=1
+          while :; do
+            body=$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/orgs/tkhq/members?per_page=100&page=${page}")
+            ids+="$(jq -r '.[].id' <<<"$body")"$'\n'
+            [ "$(jq length <<<"$body")" -lt 100 ] && break
+            page=$((page + 1))
+          done
+          list=$(printf '%s\n' "$DEPENDABOT_ID" "$GITHUB_ACTIONS_ID" "$RENOVATE_ID" "$ids" | grep -E '^[0-9]+$' | paste -sd, -)
+          echo "::add-mask::${list}"
+          echo "CLA_ALLOWLIST_IDS=${list}" >> "$GITHUB_ENV"
+      - name: "CLA Assistant v2"
+        id: cla_action
+        # Pin to a full 40-character commit SHA, not a tag — see "Pinning by commit SHA" below.
+        uses: tkhq/cla-github-action@44731e8bc2120b726d651a1c1d90721411c75eb7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Only set this token for a remote signature repository. Prefer a
+          # fine-grained token limited to that repository with Contents read
+          # and write access.
+          PERSONAL_ACCESS_TOKEN: ${{ steps.app_token.outputs.token }}
+        with:
+          path-to-signatures: 'signatures/version1/cla.json'
+          # TODO: replace with the Legal-approved CLA URL before rollout
+          path-to-document: 'https://github.com/tkhq/cla-github-action/blob/master/CLA.md' # Required absolute HTTPS URL
+          # Initialize this branch, then restrict writes to trusted CLA automation.
+          branch: 'main'
+          required-base-ref: 'main'
+          require-opener-as-author: 'true'
+          allowlist-ids: ${{ env.CLA_ALLOWLIST_IDS }}
+          remote-organization-name: tkhq
+          remote-repository-name: cla-signatures
+          # Add allowlist-ids only for a documented automated PR opener, using
+          # that opener's numeric GitHub account ID. Never allowlist a name or
+          # email from commit metadata.
+
+         # the followings are the optional inputs - If the optional inputs are not given, then default values will be taken
+          #remote-organization-name: enter the remote organization name where the signatures should be stored (Default is storing the signatures in the same repository)
+          #remote-repository-name: enter the  remote repository name where the signatures should be stored (Default is storing the signatures in the same repository)
+          #create-file-commit-message: 'For example: Creating file for storing CLA Signatures'
+          #signed-commit-message: 'For example: $contributorName has signed the CLA in $owner/$repo#$pullRequestNo'
+          #custom-notsigned-prcomment: 'pull request comment with Introductory message to ask new contributors to sign'
+          #custom-pr-sign-comment: 'The signature to be committed in order to sign the CLA'
+          # If set, replace the default declaration in the job `if` guard with this exact text.
+          #custom-allsigned-prcomment: 'pull request comment when all contributors has signed, defaults to **CLA Assistant Lite bot** All Contributors have signed the CLA.'
+          #lock-pullrequest-aftermerge: false - if you don't want this bot to automatically lock the pull request after merging (default - true)
+          #use-dco-flag: true - If you are using DCO instead of CLA
+          #require-opener-as-author: false - if your workflow involves submitters legitimately opening PRs containing only commits authored by others (cherry-picks, release engineering). Default is true.
+
