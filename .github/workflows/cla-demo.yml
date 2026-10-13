@@ -1,0 +1,85 @@
+name: CLA
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+    branches: [cla-demo]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla:
+    if: |
+      (
+        github.event_name == 'pull_request_target' &&
+        (
+          github.event.action == 'opened' ||
+          github.event.action == 'synchronize' ||
+          (github.event.action == 'closed' && github.event.pull_request.merged == true)
+        )
+      ) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        (
+          contains(github.event.comment.body, 'recheck') ||
+          contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA')
+        )
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Resolve pull request head SHA"
+        id: head
+        if: github.event.action != 'closed'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          sha="$PR_HEAD_SHA"
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            sha=$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${REPO}/pulls/${ISSUE_NUMBER}" | jq -r .head.sha)
+          fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Could not resolve a 40-hex PR head SHA"; exit 1; }
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+      - name: "CLA Assistant"
+        id: cla_action
+        uses: tkhq/cla-github-action@44731e8bc2120b726d651a1c1d90721411c75eb7
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          path-to-document: 'https://github.com/tkhq/cla-github-action/blob/cla-demo/CLA.md'
+          path-to-signatures: 'signatures/cla.json'
+          branch: 'cla-signatures'
+          required-base-ref: 'cla-demo'
+          expected-head-sha: ${{ steps.head.outputs.sha }}
+      - name: "Publish CLA commit status"
+        if: always() && github.event.action != 'closed' && steps.head.outputs.sha != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.head.outputs.sha }}
+          ACTION_OUTCOME: ${{ steps.cla_action.outcome }}
+          CLA_PASSED: ${{ steps.cla_action.outputs.cla_passed }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          state=failure
+          if [ "$ACTION_OUTCOME" = "success" ] && [ "$CLA_PASSED" = "true" ]; then state=success; fi
+          curl --fail --silent --show-error -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${REPO}/statuses/${SHA}" \
+            -d "{\"state\":\"${state}\",\"context\":\"CLA\",\"target_url\":\"${TARGET_URL}\"}"
+  
