@@ -10,11 +10,12 @@ permissions: {}
 
 jobs:
   CLA:
-    uses: tkhq/cla-github-action/.github/workflows/cla.yml@3270d04dfd9c3fa417b9cd4cdcfc181d990a83f9
+    uses: tkhq/cla-github-action/.github/workflows/cla.yml@b18d7c2272f5d9863cf316c9c47254604109e137
     permissions:
       contents: read
       issues: write
       pull-requests: write
+      statuses: write
     secrets:
       CLA_APP_ID: ${{ secrets.CLA_APP_ID }}
       CLA_APP_PRIVATE_KEY: ${{ secrets.CLA_APP_PRIVATE_KEY }}
