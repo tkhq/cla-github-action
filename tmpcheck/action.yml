@@ -1,0 +1,13 @@
+name: default check
+description: echoes default
+inputs:
+  path-to-document:
+    description: x
+    default: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.event.repository.default_branch }}/CLA.md
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        DOC: ${{ inputs.path-to-document }}
+      run: echo "DOC=${DOC}"
