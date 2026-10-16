@@ -13,7 +13,7 @@ permissions:
   contents: read
   issues: write
   pull-requests: write
-  statuses: write
+  actions: write
 
 jobs:
   cla:
@@ -31,6 +31,7 @@ jobs:
         ) ||
         (
           github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request &&
           (
             github.event.comment.body == 'recheck' ||
             github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
@@ -39,7 +40,7 @@ jobs:
       )
     runs-on: ubuntu-latest
     steps:
-      - uses: tkhq/cla-github-action/turnkey@f6962fc66d8065dd69268e841ee0817f242ea813
+      - uses: tkhq/cla-github-action/turnkey@321ca8ad61a09c800d45d56057aeeb1028291b43
         with:
           app-id: ${{ secrets.CLA_APP_ID }}
           private-key: ${{ secrets.CLA_APP_PRIVATE_KEY }}
