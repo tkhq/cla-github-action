@@ -1,0 +1,97 @@
+name: "Turnkey CLA"
+description: "CLA Assistant with Turnkey defaults: signatures in tkhq/cla-signatures, tkhq members exempt"
+inputs:
+  app-id:
+    description: "ID of the GitHub App that can write tkhq/cla-signatures and read tkhq members"
+    required: true
+  private-key:
+    description: "Private key of that GitHub App"
+    required: true
+  path-to-document:
+    description: "Absolute HTTPS URL of the CLA. Defaults to CLA.md in the calling repository."
+    default: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.event.repository.default_branch }}/CLA.md
+runs:
+  using: composite
+  steps:
+    - name: "Mint CLA signatures app token"
+      id: app_token
+      if: github.event_name != 'issue_comment'
+      uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
+        owner: tkhq
+        repositories: cla-signatures
+        permission-contents: write
+        permission-members: read
+    - name: "Build tkhq member allowlist"
+      if: github.event_name != 'issue_comment'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ steps.app_token.outputs.token }}
+      run: |
+        set -euo pipefail
+        DEPENDABOT_ID=49699333  # dependabot[bot]
+        GITHUB_ACTIONS_ID=41898282  # github-actions[bot]
+        RENOVATE_ID=29139614  # renovate[bot]
+        ids=""
+        page=1
+        while :; do
+          body=$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/orgs/tkhq/members?per_page=100&page=${page}")
+          ids+="$(jq -r '.[].id' <<<"$body")"$'\n'
+          [ "$(jq length <<<"$body")" -lt 100 ] && break
+          page=$((page + 1))
+        done
+        list=$(printf '%s\n' "$DEPENDABOT_ID" "$GITHUB_ACTIONS_ID" "$RENOVATE_ID" "$ids" | grep -E '^[0-9]+$' | paste -sd, -)
+        echo "::add-mask::${list}"
+        echo "CLA_ALLOWLIST_IDS=${list}" >> "$GITHUB_ENV"
+    - name: "CLA Assistant"
+      id: cla_action
+      if: github.event_name != 'issue_comment'
+      uses: tkhq/cla-github-action@44731e8bc2120b726d651a1c1d90721411c75eb7
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        PERSONAL_ACCESS_TOKEN: ${{ steps.app_token.outputs.token }}
+      with:
+        path-to-signatures: 'signatures/version1/cla.json'
+        path-to-document: ${{ inputs.path-to-document }}
+        branch: 'main'
+        remote-organization-name: tkhq
+        remote-repository-name: cla-signatures
+        allowlist-ids: ${{ env.CLA_ALLOWLIST_IDS }}
+        required-base-ref: 'main'
+        require-opener-as-author: 'true'
+    - name: "Re-run the pull request CLA check"
+      if: github.event_name == 'issue_comment'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        ISSUE_NUMBER: ${{ github.event.issue.number }}
+        RUN_ID: ${{ github.run_id }}
+      run: |
+        set -euo pipefail
+        api() { curl --fail --silent --show-error -H "Authorization: Bearer ${GH_TOKEN}" "$@"; }
+        base="https://api.github.com/repos/${REPO}"
+        sha=$(api "${base}/pulls/${ISSUE_NUMBER}" | jq -r .head.sha)
+        wf=$(api "${base}/actions/runs/${RUN_ID}" | jq -r .workflow_id)
+        for _ in $(seq 60); do
+          run=$(api "${base}/actions/workflows/${wf}/runs?event=pull_request_target&head_sha=${sha}&per_page=1" | jq -c '.workflow_runs[0] // empty')
+          if [ -z "$run" ]; then
+            echo "::error::No CLA run found for this PR's latest commit. Push a commit to re-trigger the CLA check."
+            exit 1
+          fi
+          [ "$(jq -r .status <<<"$run")" = "completed" ] && break
+          sleep 10
+        done
+        if [ "$(jq -r .conclusion <<<"$run")" = "success" ]; then
+          echo "::notice::CLA check already passed for this commit."
+          exit 0
+        fi
+        api -X POST "${base}/actions/runs/$(jq -r .id <<<"$run")/rerun-failed-jobs" >/dev/null || {
+          echo "::error::Could not re-run the CLA check (re-runs are only possible within 30 days). Push a commit to re-trigger it."
+          exit 1
+        }
